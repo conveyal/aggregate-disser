@@ -1,2 +1,8 @@
 *.pyc
 .DS_Store
+/bin
+.classpath
+.gradle
+.project
+.settings
+build
