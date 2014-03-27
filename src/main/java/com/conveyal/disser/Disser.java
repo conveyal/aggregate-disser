@@ -13,14 +13,19 @@ import org.geotools.feature.FeatureCollection;
 import org.geotools.feature.FeatureIterator;
 import org.opengis.feature.Feature;
 
+import com.conveyal.disser.Census.GeoTable;
+import com.conveyal.disser.Census;
+
+
 public class Disser {
     public static void main(String[] args) throws IOException {
-    	if( args.length < 1 ) {
-    		System.out.println( "usage: cmd shapfile" );
+    	if( args.length < 2 ) {
+    		System.out.println( "usage: cmd shapfile sf1geofile" );
     		return;
     	}
     	
     	String shapefile_name = args[0];
+    	String geo_filename = args[1];
     	
     	// construct shapefile factory
         File file = new File( shapefile_name );
@@ -43,6 +48,12 @@ public class Disser {
              System.out.println( feature );             
              break;
         }
+        
+        Census cen = new Census();
+        System.out.println( "reading sf1 geo table" );
+        GeoTable stuff = cen.new GeoTable(geo_filename);
+        Map<String, String> eg = stuff.getAllLogRecNos();
+        System.out.println( "done, "+eg.size()+" records" );
 
     }
 }
