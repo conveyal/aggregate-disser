@@ -2,6 +2,7 @@ package com.conveyal.disser;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -22,15 +23,15 @@ public class Disser {
     	String shapefile_name = args[0];
     	
         File file = new File( shapefile_name );
-        Map map = new HashMap();
-        map.put( "url", file.toURL() );
+        Map<String,URL> map = new HashMap<String,URL>();
+        map.put( "url", file.toURI().toURL() );
         DataStore dataStore = DataStoreFinder.getDataStore( map );
         String typeName = dataStore.getTypeNames()[0];
         
-        FeatureSource source = dataStore.getFeatureSource( typeName );
+        FeatureSource<?, ?> source = dataStore.getFeatureSource( typeName );
 
-        FeatureCollection collection = source.getFeatures( );
-        FeatureIterator iterator = collection.features();
+        FeatureCollection<?, ?> collection = source.getFeatures( );
+        FeatureIterator<?> iterator = collection.features();
         
         System.out.println( "here is a feature from the shapefile you gave" );
         while( iterator.hasNext() ){
