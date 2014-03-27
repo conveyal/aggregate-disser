@@ -22,21 +22,25 @@ public class Disser {
     	
     	String shapefile_name = args[0];
     	
+    	// construct shapefile factory
         File file = new File( shapefile_name );
         Map<String,URL> map = new HashMap<String,URL>();
         map.put( "url", file.toURI().toURL() );
         DataStore dataStore = DataStoreFinder.getDataStore( map );
-        String typeName = dataStore.getTypeNames()[0];
         
+        // get shapefile as generic 'feature source'
+        String typeName = dataStore.getTypeNames()[0];
         FeatureSource<?, ?> source = dataStore.getFeatureSource( typeName );
-
+        
+        // get feature iterator from feature source
         FeatureCollection<?, ?> collection = source.getFeatures( );
         FeatureIterator<?> iterator = collection.features();
         
+        // print a single feature
         System.out.println( "here is a feature from the shapefile you gave" );
         while( iterator.hasNext() ){
              Feature feature = (Feature) iterator.next();
-             System.out.println( feature );
+             System.out.println( feature );             
              break;
         }
 
