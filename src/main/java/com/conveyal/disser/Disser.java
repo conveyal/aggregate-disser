@@ -13,8 +13,8 @@ import org.geotools.feature.FeatureCollection;
 import org.geotools.feature.FeatureIterator;
 import org.opengis.feature.Feature;
 
-import com.conveyal.disser.Census.GeoTable;
-import com.conveyal.disser.Census;
+import com.conveyal.disser.census.Census;
+import com.conveyal.disser.census.GeoTable;
 
 
 public class Disser {
@@ -49,9 +49,8 @@ public class Disser {
              break;
         }
         
-        Census cen = new Census();
         System.out.println( "reading sf1 geo table" );
-        GeoTable stuff = cen.new GeoTable(geo_filename);
+        GeoTable stuff = new GeoTable(geo_filename);
         Map<String, String> eg = stuff.getAllLogRecNos();
         System.out.println( "done, "+eg.size()+" records" );
 
