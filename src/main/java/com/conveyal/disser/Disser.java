@@ -14,7 +14,11 @@ import org.geotools.feature.FeatureIterator;
 import org.opengis.feature.Feature;
 
 import com.conveyal.disser.census.Census;
+import com.conveyal.disser.census.CensusTable;
 import com.conveyal.disser.census.GeoTable;
+import com.conveyal.disser.census.PackingList;
+import com.conveyal.disser.census.SummaryFile;
+import com.conveyal.disser.census.TableAddress;
 
 
 public class Disser {
@@ -49,10 +53,18 @@ public class Disser {
              break;
         }
         
+        geo_filename = "./data/or2010/orgeo2010.sf1";
         System.out.println( "reading sf1 geo table" );
-        GeoTable stuff = new GeoTable(geo_filename);
+        GeoTable stuff = new GeoTable("./data/or2010", "or", 2010);
         Map<String, String> eg = stuff.getAllLogRecNos();
         System.out.println( "done, "+eg.size()+" records" );
-
+        
+        SummaryFile sf1 = new SummaryFile("./data/or2010","or",2010);
+        
+        System.out.println( "reading p1 table" );
+        CensusTable p1 = sf1.getTable("p12");
+        System.out.println( "table has "+p1.records.size()+" records");
+        
+        
     }
 }

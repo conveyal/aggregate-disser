@@ -1,6 +1,7 @@
 package com.conveyal.disser.census;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -51,14 +52,18 @@ public class GeoTable{
 	
 	BufferedReader br;
 	
-	public GeoTable(String filename) throws FileNotFoundException{
+	public GeoTable(String basedir, String stateabbrev, int year) throws FileNotFoundException {
+		File bd = new File(basedir);
+		File ff = new File(bd, stateabbrev+"geo"+year+".sf1");
+		String filename = ff.getPath();
+		
 		InputStream fis;
 		
 		fis = new FileInputStream(filename);
 		br = new BufferedReader(new InputStreamReader(fis, Charset.forName("UTF-8")));
 		
 	}
-	
+
 	String nextLine(){
 		if(br==null){
 			return null;
