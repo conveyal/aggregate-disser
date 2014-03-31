@@ -31,4 +31,15 @@ public class CensusRecord {
 		return ret;
 	}
 
+	public int getCensusIntField(int i) {
+		// census table fields are 1-indexed, so decrement
+		i -= 1;
+		
+		if( i<0 || i>=tableFields.length ){
+			throw new ArrayIndexOutOfBoundsException(i+1);
+		}
+		
+		return Integer.parseInt(tableFields[i]);
+	}
+
 }
