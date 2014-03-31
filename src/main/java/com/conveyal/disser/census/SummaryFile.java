@@ -30,6 +30,12 @@ public class SummaryFile {
         PackingList pl = new PackingList(ff.getPath());
         tableLocs = pl.getTableLocations();
     }
+	
+	public Map<String, String> getGeoTable() throws FileNotFoundException{
+        GeoTable stuff = new GeoTable(basedir, stateabbrev, year);
+        Map<String, String> eg = stuff.getAllLogRecNos();
+        return eg;
+	}
 
 	public CensusTable getTable(String tableName) throws IOException {
 		TableAddress ta = tableLocs.get(tableName);
