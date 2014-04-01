@@ -76,8 +76,8 @@ public class Disser {
         }        
         
         //==== loop through indicator shapefile, finding overlapping diss items
-    	HashMap<Geometry,ArrayList<Geometry>> indToDiss = new HashMap<Geometry,ArrayList<Geometry>>();
-    	HashMap<Geometry,ArrayList<Geometry>> dissToInd = new HashMap<Geometry,ArrayList<Geometry>>();
+    	HashMap<Feature,ArrayList<Feature>> indToDiss = new HashMap<Feature,ArrayList<Feature>>();
+    	HashMap<Feature,ArrayList<Feature>> dissToInd = new HashMap<Feature,ArrayList<Feature>>();
         
         FilterFactory2 ff = CommonFactoryFinder.getFilterFactory2();
         FeatureType schema = dissSource.getSchema();
@@ -99,8 +99,8 @@ public class Disser {
         		System.out.println( i+"/"+n+" ("+(100*(float)i)/n+"%)" );
         	}
         	
-             Feature feature = (Feature) iterator.next();
-             GeometryAttribute geoAttr = feature.getDefaultGeometryProperty();
+             Feature ind = (Feature) iterator.next();
+             GeometryAttribute geoAttr = ind.getDefaultGeometryProperty();
              Geometry indGeo = (Geometry)geoAttr.getValue();
              
 //             //int indicator_val = (Integer)feature.getProperties(indicator_fld).iterator().next().getValue();
@@ -118,19 +118,19 @@ public class Disser {
             	 Geometry dissGeo = (Geometry)dissGeoAttr.getValue();
             	 
             	 if(dissGeo.intersects(indGeo)){
-            		 ArrayList<Geometry> inds = dissToInd.get(dissGeo);
+            		 ArrayList<Feature> inds = dissToInd.get(diss);
             		 if(inds==null){
-            			 inds = new ArrayList<Geometry>();
-            			 dissToInd.put(dissGeo, inds);
+            			 inds = new ArrayList<Feature>();
+            			 dissToInd.put(diss, inds);
             		 }
-            		 inds.add(indGeo);
+            		 inds.add(ind);
             		 
-            		 ArrayList<Geometry> disss = indToDiss.get(indGeo);
+            		 ArrayList<Feature> disss = indToDiss.get(ind);
             		 if(disss==null){
-            			 disss = new ArrayList<Geometry>();
-            			 indToDiss.put(indGeo, disss);
+            			 disss = new ArrayList<Feature>();
+            			 indToDiss.put(ind, disss);
             		 }
-            		 disss.add(indGeo);
+            		 disss.add(ind);
             		 
             		 overlapN++;
             	 }
@@ -141,10 +141,72 @@ public class Disser {
              i++;
         }
         
-        for( Entry<Geometry, ArrayList<Geometry>> entry : dissToInd.entrySet() ){
-        	Geometry dissGeo = entry.getKey();
-        	ArrayList<Geometry> indGeos = entry.getValue();
-        	System.out.println( "diss geom has "+indGeos.size()+" ind geoms" );
+        HashMap<Feature,ArrayList<DissShare>> indDissShares = new HashMap<Feature,ArrayList<DissShare>>();
+        for( Entry<Feature, ArrayList<Feature>> entry : dissToInd.entrySet() ){
+        	Feature diss = entry.getKey();
+        	ArrayList<Feature> inds = entry.getValue();
+        	System.out.println( "diss feature has "+inds.size()+" ind features" );
+        	
+        	// determine diss's magnitude
+        	int mag = (Integer)diss.getProperty( diss_fld ).getValue();
+        	
+        	Geometry dissGeo = (Geometry)diss.getDefaultGeometryProperty().getValue();
+        	double dissGeoArea = dissGeo.getArea();
+        	for(Feature ind : inds){
+            	// find the fraction of diss overlapping each ind shape
+        		Geometry indGeo = (Geometry)ind.getDefaultGeometryProperty().getValue();
+        		Geometry overlap = dissGeo.intersection(indGeo);
+        		double overlapArea = overlap.getArea();
+        		double fraction = overlapArea/dissGeoArea;
+        		
+            	// assign the magnitude proportionately
+        		double share = fraction*mag;
+        		
+        		// then register the diss feature's share with the ind feature
+        		ArrayList<DissShare> shares = indDissShares.get(ind);
+        		if(shares==null){
+        			shares = new ArrayList<DissShare>();
+        			indDissShares.put(ind, shares);
+        		}
+        		shares.add(new DissShare(diss,share));
+        	}
+        }
+        
+        HashMap<Feature,Double> dissMags = new HashMap<Feature,Double>();
+        for( Entry<Feature, ArrayList<DissShare>> entry : indDissShares.entrySet() ){
+        	Feature ind = entry.getKey();
+        	ArrayList<DissShare> disss = entry.getValue();
+        	
+        	// count up total shares
+        	int totalDissMag = 0;
+        	for(DissShare diss : disss){
+        		totalDissMag += diss.mag;
+        	}
+        	
+        	// get magnitude of ind
+        	int indMag = (Integer)ind.getProperty(indicator_fld).getValue();
+        	
+        	// for every diss associated with ind
+        	for( DissShare diss : disss ){
+        		// find fraction of ind doleable to diss
+        		double fraction = diss.mag/totalDissMag;
+        		double doleable = indMag*fraction;
+        		
+        		// accumulate values doled out to disses
+        		Double dissMag = dissMags.get(diss);
+        		if(dissMag==null){
+        			dissMag = new Double(0);
+        		}
+        		dissMag += doleable;
+        		dissMags.put(diss.diss,dissMag);
+        	}
+        }
+        
+        // go through the dissMag list and emit points at centroids
+        for( Entry<Feature, Double> entry : dissMags.entrySet() ) {
+        	Geometry dissGeom = (Geometry)entry.getKey().getDefaultGeometryProperty();
+        	Point centroid = dissGeom.getCentroid();
+        	System.out.println( centroid.getX()+","+centroid.getY()+","+entry.getValue());
         }
     }
 }
