@@ -6,6 +6,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 import java.util.Map.Entry;
 
 import org.geotools.data.DataStore;
@@ -20,23 +21,33 @@ import org.opengis.feature.GeometryAttribute;
 import org.opengis.feature.type.FeatureType;
 import org.opengis.filter.FilterFactory2;
 import org.opengis.filter.spatial.BBOX;
+import org.opengis.geometry.BoundingBox;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 
+import com.vividsolutions.jts.geom.Coordinate;
+import com.vividsolutions.jts.geom.Envelope;
 import com.vividsolutions.jts.geom.Geometry;
+import com.vividsolutions.jts.geom.GeometryFactory;
 import com.vividsolutions.jts.geom.Point;
 
 
 public class Disser {
     public static void main(String[] args) throws Exception {
     	if( args.length < 4 ) {
-    		System.out.println( "usage: cmd indicator_shp indicator_fld diss_shp diss_fld" );
+    		System.out.println( "usage: cmd [--discrete] indicator_shp indicator_fld diss_shp diss_fld" );
     		return;
     	}
+    	
+    	int argOfs = 0;
+    	boolean discrete = args[0].equals("--discrete");
+    	if(discrete){
+    		argOfs=1;
+    	}
     	    	
-    	String indicator_shp = args[0];
-    	String indicator_fld = args[1];
-    	String diss_shp = args[2];
-    	String diss_fld = args[3];
+    	String indicator_shp = args[argOfs+0];
+    	String indicator_fld = args[argOfs+1];
+    	String diss_shp = args[argOfs+2];
+    	String diss_fld = args[argOfs+3];
       
     	//==== get indicator shapefile
     	
@@ -201,16 +212,62 @@ public class Disser {
         System.out.print( "printing to file..." );
         PrintWriter writer = new PrintWriter("afile.csv", "UTF-8");
         writer.println("lon,lat,mag");
+        
+        Random rand = new Random(); //could come in handy if we're doing a discrete output
         for( Entry<Feature, Double> entry : dissMags.entrySet() ) {
-        	Geometry dissGeom = (Geometry)entry.getKey().getDefaultGeometryProperty().getValue();
-        	Point centroid = dissGeom.getCentroid();
+        	Feature diss = entry.getKey();
+        	Geometry dissGeom = (Geometry)diss.getDefaultGeometryProperty().getValue();
         	double mag = entry.getValue();
-        	if(mag>0){
-        		writer.println( centroid.getX()+","+centroid.getY()+","+mag);
+        	if(discrete){
+        		// probabilistically round magnitude to an integer. This way if there's 5 disses with mag 0.2, on average
+        		// one will be 1 and the others 0, instead of rounding all down to 0.
+        		int discreteMag;
+        		double remainder = mag-Math.floor(mag); //number between 0 and 1
+        		if(remainder<rand.nextDouble()){
+        			//remainder is smaller than random integer; relatively likely for small remainders
+        			//so when this happens we'll round down
+        			discreteMag = (int)Math.floor(mag);
+        		} else {
+        			discreteMag = (int)Math.ceil(mag);
+        		}
+        		
+        		BoundingBox bb = diss.getBounds();
+        		for(int j=0; j<discreteMag; j++){
+        			Point pt = getRandomPoint( bb, dissGeom );
+        			if(pt==null){
+        				continue; //something went wrong; act cool
+        			}
+        			writer.println( pt.getX()+","+pt.getY()+",1");
+        		}
+        	} else {
+            	Point centroid = dissGeom.getCentroid();
+            	if(mag>0){
+            		writer.println( centroid.getX()+","+centroid.getY()+","+mag);
+            	}
         	}
         }
         writer.flush();
         writer.close();
         System.out.print("done.\n");
     }
+
+	private static Point getRandomPoint(BoundingBox bb, Geometry geom) {
+		Random rand = new Random();
+		
+	    GeometryFactory gf = new GeometryFactory();
+	    Point pt = null;
+	    for(int i=0; i<1000; i++){
+       	double x = randdouble(rand, bb.getMinX(),bb.getMaxX());
+	       	double y = randdouble(rand, bb.getMinY(),bb.getMaxY());
+	       	pt = gf.createPoint( new Coordinate(x,y) );
+	       	if(geom.contains(pt)){
+	       		return pt;
+	       	}
+        }
+        return null;
+	}
+	
+	private static double randdouble(Random rand, double minX, double maxX) {
+		return minX + rand.nextDouble()*(maxX-minX);
+	}
 }
