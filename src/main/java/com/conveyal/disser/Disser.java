@@ -18,7 +18,9 @@ import org.geotools.feature.FeatureIterator;
 import org.geotools.geometry.jts.ReferencedEnvelope;
 import org.opengis.feature.Feature;
 import org.opengis.feature.GeometryAttribute;
+import org.opengis.feature.Property;
 import org.opengis.feature.type.FeatureType;
+import org.opengis.feature.type.PropertyType;
 import org.opengis.filter.FilterFactory2;
 import org.opengis.filter.spatial.BBOX;
 import org.opengis.geometry.BoundingBox;
@@ -146,7 +148,20 @@ public class Disser {
         	if(diss_fld.equals("::area::")){
         		mag = ((Geometry)diss.getDefaultGeometryProperty().getValue()).getArea();
         	} else {
-        		mag = (Integer)diss.getProperty( diss_fld ).getValue();
+        		Property magProp = diss.getProperty(diss_fld);
+        		Class<?> cls = magProp.getType().getBinding();
+        		
+        		if(cls.equals(Long.class)){
+        			mag = (Long)diss.getProperty( diss_fld ).getValue();
+        		} else if(cls.equals(Integer.class)){
+        			mag = (Integer)diss.getProperty( diss_fld ).getValue();
+        		} else if(cls.equals(Double.class)){
+        			mag = (Double)diss.getProperty( diss_fld ).getValue();
+        		} else if(cls.equals(Float.class)){
+        			mag = (Float)diss.getProperty( diss_fld ).getValue();
+        		} else {
+        			throw new Exception( "Diss property has unkown type "+cls );
+        		}
         	}
         	
         	Geometry dissGeo = (Geometry)diss.getDefaultGeometryProperty().getValue();
