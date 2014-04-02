@@ -142,7 +142,12 @@ public class Disser {
         	ArrayList<Feature> inds = entry.getValue();
         	
         	// determine diss's magnitude
-        	int mag = (Integer)diss.getProperty( diss_fld ).getValue();
+        	double mag;
+        	if(diss_fld.equals("::area::")){
+        		mag = ((Geometry)diss.getDefaultGeometryProperty().getValue()).getArea();
+        	} else {
+        		mag = (Integer)diss.getProperty( diss_fld ).getValue();
+        	}
         	
         	Geometry dissGeo = (Geometry)diss.getDefaultGeometryProperty().getValue();
         	double dissGeoArea = dissGeo.getArea();
