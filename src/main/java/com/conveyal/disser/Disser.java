@@ -145,11 +145,7 @@ public class Disser {
         	ArrayList<Feature> inds = entry.getValue();
         	
         	// determine diss's magnitude
-        	double mag=0;
-        	String[] dissFlds = dissFldExpression.split("\\+");
-        	for(String dissFld : dissFlds ){
-        		mag += parseField(dissFld.trim(), diss);
-        	}
+        	double mag = getFieldsByExpression(dissFldExpression, diss);
         	
         	Geometry dissGeo = (Geometry)diss.getDefaultGeometryProperty().getValue();
         	double dissGeoArea = dissGeo.getArea();
@@ -195,7 +191,7 @@ public class Disser {
         	}
         	
         	// get magnitude of ind
-        	double indMag = parseField( indicator_fld, ind );
+        	double indMag = getFieldsByExpression( indicator_fld, ind );
         	
         	// for every diss associated with ind
         	for( DissShare dissShare : dissShares ){
@@ -263,6 +259,16 @@ public class Disser {
         writer.close();
         System.out.print("done.\n");
     }
+
+	private static double getFieldsByExpression(String fieldExpression,
+			Feature feature) throws Exception {
+		double mag=0;
+		String[] dissFlds = fieldExpression.split("\\+");
+		for(String dissFld : dissFlds ){
+			mag += parseField(dissFld.trim(), feature);
+		}
+		return mag;
+	}
 
 	private static double parseField(String diss_fld, Feature diss)
 			throws Exception {
