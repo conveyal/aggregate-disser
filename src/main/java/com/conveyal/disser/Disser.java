@@ -31,6 +31,7 @@ import com.vividsolutions.jts.geom.Envelope;
 import com.vividsolutions.jts.geom.Geometry;
 import com.vividsolutions.jts.geom.GeometryFactory;
 import com.vividsolutions.jts.geom.Point;
+import com.vividsolutions.jts.geom.TopologyException;
 
 
 public class Disser {
@@ -49,7 +50,7 @@ public class Disser {
     	String indicator_shp = args[argOfs+0];
     	String indicator_fld = args[argOfs+1];
     	String diss_shp = args[argOfs+2];
-    	String diss_fld = args[argOfs+3];
+    	String dissFldExpression = args[argOfs+3];
       
     	//==== get indicator shapefile
     	
@@ -144,24 +145,10 @@ public class Disser {
         	ArrayList<Feature> inds = entry.getValue();
         	
         	// determine diss's magnitude
-        	double mag;
-        	if(diss_fld.equals("::area::")){
-        		mag = ((Geometry)diss.getDefaultGeometryProperty().getValue()).getArea();
-        	} else {
-        		Property magProp = diss.getProperty(diss_fld);
-        		Class<?> cls = magProp.getType().getBinding();
-        		
-        		if(cls.equals(Long.class)){
-        			mag = (Long)diss.getProperty( diss_fld ).getValue();
-        		} else if(cls.equals(Integer.class)){
-        			mag = (Integer)diss.getProperty( diss_fld ).getValue();
-        		} else if(cls.equals(Double.class)){
-        			mag = (Double)diss.getProperty( diss_fld ).getValue();
-        		} else if(cls.equals(Float.class)){
-        			mag = (Float)diss.getProperty( diss_fld ).getValue();
-        		} else {
-        			throw new Exception( "Diss property has unkown type "+cls );
-        		}
+        	double mag=0;
+        	String[] dissFlds = dissFldExpression.split("\\+");
+        	for(String dissFld : dissFlds ){
+        		mag += parseField(dissFld.trim(), diss);
         	}
         	
         	Geometry dissGeo = (Geometry)diss.getDefaultGeometryProperty().getValue();
@@ -169,7 +156,13 @@ public class Disser {
         	for(Feature ind : inds){
             	// find the fraction of diss overlapping each ind shape
         		Geometry indGeo = (Geometry)ind.getDefaultGeometryProperty().getValue();
-        		Geometry overlap = dissGeo.intersection(indGeo);
+        		Geometry overlap;
+        		try{
+        			overlap = dissGeo.intersection(indGeo);
+        		} catch (TopologyException e){
+        			// something strange happened; carry on
+        			continue;
+        		}
         		double overlapArea = overlap.getArea();
         		double fraction = overlapArea/dissGeoArea;
         		
@@ -202,7 +195,7 @@ public class Disser {
         	}
         	
         	// get magnitude of ind
-        	int indMag = (Integer)ind.getProperty(indicator_fld).getValue();
+        	double indMag = parseField( indicator_fld, ind );
         	
         	// for every diss associated with ind
         	for( DissShare dissShare : dissShares ){
@@ -270,6 +263,35 @@ public class Disser {
         writer.close();
         System.out.print("done.\n");
     }
+
+	private static double parseField(String diss_fld, Feature diss)
+			throws Exception {
+		double mag;
+		if(diss_fld.equals("::area::")){
+			mag = ((Geometry)diss.getDefaultGeometryProperty().getValue()).getArea();
+		} else {
+			Property magProp = diss.getProperty(diss_fld);
+			Class<?> cls = magProp.getType().getBinding();
+			
+			Object propVal = diss.getProperty( diss_fld ).getValue();
+			if(propVal==null){
+				return 0;
+			}
+			
+			if(cls.equals(Long.class)){
+				mag = (Long)propVal;
+			} else if(cls.equals(Integer.class)){
+				mag = (Integer)propVal;
+			} else if(cls.equals(Double.class)){
+				mag = (Double)propVal;
+			} else if(cls.equals(Float.class)){
+				mag = (Float)propVal;
+			} else {
+				throw new Exception( "Diss property has unkown type "+cls );
+			}
+		}
+		return mag;
+	}
 
 	private static Point getRandomPoint(BoundingBox bb, Geometry geom) {
 		Random rand = new Random();
