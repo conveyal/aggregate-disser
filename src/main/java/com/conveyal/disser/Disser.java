@@ -2,6 +2,7 @@ package com.conveyal.disser;
 
 import java.io.File;
 import java.io.PrintWriter;
+import java.io.Serializable;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -11,25 +12,36 @@ import java.util.Map.Entry;
 
 import org.geotools.data.DataStore;
 import org.geotools.data.DataStoreFinder;
+import org.geotools.data.DefaultTransaction;
 import org.geotools.data.FeatureSource;
+import org.geotools.data.Transaction;
+import org.geotools.data.shapefile.ShapefileDataStore;
+import org.geotools.data.shapefile.ShapefileDataStoreFactory;
+import org.geotools.data.simple.SimpleFeatureSource;
+import org.geotools.data.simple.SimpleFeatureStore;
 import org.geotools.factory.CommonFactoryFinder;
+import org.geotools.feature.DefaultFeatureCollection;
 import org.geotools.feature.FeatureCollection;
 import org.geotools.feature.FeatureIterator;
+import org.geotools.feature.simple.SimpleFeatureBuilder;
+import org.geotools.feature.simple.SimpleFeatureTypeBuilder;
 import org.geotools.geometry.jts.ReferencedEnvelope;
+import org.geotools.referencing.crs.DefaultGeographicCRS;
 import org.opengis.feature.Feature;
 import org.opengis.feature.GeometryAttribute;
 import org.opengis.feature.Property;
+import org.opengis.feature.simple.SimpleFeature;
+import org.opengis.feature.simple.SimpleFeatureType;
 import org.opengis.feature.type.FeatureType;
-import org.opengis.feature.type.PropertyType;
 import org.opengis.filter.FilterFactory2;
 import org.opengis.filter.spatial.BBOX;
 import org.opengis.geometry.BoundingBox;
 import org.opengis.referencing.crs.CoordinateReferenceSystem;
 
 import com.vividsolutions.jts.geom.Coordinate;
-import com.vividsolutions.jts.geom.Envelope;
 import com.vividsolutions.jts.geom.Geometry;
 import com.vividsolutions.jts.geom.GeometryFactory;
+import com.vividsolutions.jts.geom.MultiPolygon;
 import com.vividsolutions.jts.geom.Point;
 import com.vividsolutions.jts.geom.TopologyException;
 
@@ -37,13 +49,14 @@ import com.vividsolutions.jts.geom.TopologyException;
 public class Disser {
     public static void main(String[] args) throws Exception {
     	if( args.length < 4 ) {
-    		System.out.println( "usage: cmd [--discrete] indicator_shp indicator_fld diss_shp diss_fld" );
+    		System.out.println( "usage: cmd [--(discrete|shapefile)] indicator_shp indicator_fld diss_shp diss_fld" );
     		return;
     	}
     	
     	int argOfs = 0;
     	boolean discrete = args[0].equals("--discrete");
-    	if(discrete){
+    	boolean shapefile = args[0].equals("--shapefile");
+    	if(discrete || shapefile){
     		argOfs=1;
     	}
     	    	
@@ -218,45 +231,106 @@ public class Disser {
         }
         
         // go through the dissMag list and emit points at centroids
-        System.out.print( "printing to file..." );
-        PrintWriter writer = new PrintWriter("afile.csv", "UTF-8");
-        writer.println("lon,lat,mag");
-        
-        Random rand = new Random(); //could come in handy if we're doing a discrete output
-        for( Entry<Feature, Double> entry : dissMags.entrySet() ) {
-        	Feature diss = entry.getKey();
-        	Geometry dissGeom = (Geometry)diss.getDefaultGeometryProperty().getValue();
-        	double mag = entry.getValue();
-        	if(discrete){
-        		// probabilistically round magnitude to an integer. This way if there's 5 disses with mag 0.2, on average
-        		// one will be 1 and the others 0, instead of rounding all down to 0.
-        		int discreteMag;
-        		double remainder = mag-Math.floor(mag); //number between 0 and 1
-        		if(remainder<rand.nextDouble()){
-        			//remainder is smaller than random integer; relatively likely for small remainders
-        			//so when this happens we'll round down
-        			discreteMag = (int)Math.floor(mag);
-        		} else {
-        			discreteMag = (int)Math.ceil(mag);
-        		}
-        		
-        		BoundingBox bb = diss.getBounds();
-        		for(int j=0; j<discreteMag; j++){
-        			Point pt = getRandomPoint( bb, dissGeom );
-        			if(pt==null){
-        				continue; //something went wrong; act cool
-        			}
-        			writer.println( pt.getX()+","+pt.getY()+",1");
-        		}
-        	} else {
-            	Point centroid = dissGeom.getCentroid();
-            	if(mag>0){
-            		writer.println( centroid.getX()+","+centroid.getY()+","+mag);
+        if(!shapefile){
+            System.out.print( "printing to file..." );
+	        PrintWriter writer = new PrintWriter("afile.csv", "UTF-8");
+	        writer.println("lon,lat,mag");
+	        
+	        Random rand = new Random(); //could come in handy if we're doing a discrete output
+	        for( Entry<Feature, Double> entry : dissMags.entrySet() ) {
+	        	Feature diss = entry.getKey();
+	        	Geometry dissGeom = (Geometry)diss.getDefaultGeometryProperty().getValue();
+	        	double mag = entry.getValue();
+	        	if(discrete){
+	        		// probabilistically round magnitude to an integer. This way if there's 5 disses with mag 0.2, on average
+	        		// one will be 1 and the others 0, instead of rounding all down to 0.
+	        		int discreteMag;
+	        		double remainder = mag-Math.floor(mag); //number between 0 and 1
+	        		if(remainder<rand.nextDouble()){
+	        			//remainder is smaller than random integer; relatively likely for small remainders
+	        			//so when this happens we'll round down
+	        			discreteMag = (int)Math.floor(mag);
+	        		} else {
+	        			discreteMag = (int)Math.ceil(mag);
+	        		}
+	        		
+	        		BoundingBox bb = diss.getBounds();
+	        		for(int j=0; j<discreteMag; j++){
+	        			Point pt = getRandomPoint( bb, dissGeom );
+	        			if(pt==null){
+	        				continue; //something went wrong; act cool
+	        			}
+	        			writer.println( pt.getX()+","+pt.getY()+",1");
+	        		}
+	        	} else {
+	            	Point centroid = dissGeom.getCentroid();
+	            	if(mag>0){
+	            		writer.println( centroid.getX()+","+centroid.getY()+","+mag);
+	            	}
+	        	}
+	        }
+	        writer.flush();
+	        writer.close();
+        } else {
+        	System.out.println( "printing to shapefile..." );
+        	ShapefileDataStoreFactory dataStoreFactory = new ShapefileDataStoreFactory();
+        	
+        	Map<String, Serializable> params = new HashMap<String, Serializable>();
+       		params.put("url", new File("afile.shp").toURI().toURL());
+       		params.put("create spatial index", Boolean.TRUE);
+       		
+    		ShapefileDataStore outputStore = (ShapefileDataStore)dataStoreFactory.createNewDataStore(params);
+    		outputStore.forceSchemaCRS(DefaultGeographicCRS.WGS84);
+    		
+            // build the type
+        	SimpleFeatureTypeBuilder builder = new SimpleFeatureTypeBuilder();
+            builder.setName("diss");
+            builder.setCRS(DefaultGeographicCRS.WGS84); 
+            builder.add("the_geom", MultiPolygon.class);
+            builder.length(16).add("mag", Float.class); 
+            
+            final SimpleFeatureType dissType = builder.buildFeatureType();
+            outputStore.createSchema(dissType);
+            
+            DefaultFeatureCollection featureCollection = new DefaultFeatureCollection();
+            SimpleFeatureBuilder featureBuilder = new SimpleFeatureBuilder(dissType);
+            
+            int j=0;
+            for(Entry<Feature, Double> entry : dissMags.entrySet()) {
+            	if(j%1000==0){
+            		System.out.println("writing feature "+j);
             	}
-        	}
+            	
+	        	Feature diss = entry.getKey();
+	        	Geometry dissGeom = (Geometry)diss.getDefaultGeometryProperty().getValue();
+	        	double mag = entry.getValue();
+	        	
+	        	featureBuilder.add(dissGeom);
+	        	featureBuilder.add(mag);
+         	
+                SimpleFeature feature = featureBuilder.buildFeature(null);
+                featureCollection.add(feature);
+                
+                j++;
+            }
+            
+            Transaction transaction = new DefaultTransaction("create");
+            String outputTypeName = outputStore.getTypeNames()[0];
+            SimpleFeatureSource featureSource = outputStore.getFeatureSource(outputTypeName);
+            if (featureSource instanceof SimpleFeatureStore) 
+            {
+            	System.out.println("committing");
+                SimpleFeatureStore featureStore = (SimpleFeatureStore) featureSource;
+
+                featureStore.setTransaction(transaction);
+               
+                featureStore.addFeatures(featureCollection);
+                transaction.commit();
+
+                transaction.close();
+            } 
+            
         }
-        writer.flush();
-        writer.close();
         System.out.print("done.\n");
     }
 
