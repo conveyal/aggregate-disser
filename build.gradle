@@ -1,4 +1,16 @@
 
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'eu.appsatori:gradle-fatjar-plugin:0.2-rc1'
+    }
+}
+
+apply plugin: 'fatjar'
+
 apply plugin: 'java'
 apply plugin: 'eclipse'
 
@@ -7,6 +19,12 @@ ext {
 }
 
 jar {
+    manifest {
+        attributes 'Main-Class': 'com.conveyal.disser.Disser'
+    }
+}
+
+fatJar {
     manifest {
         attributes 'Main-Class': 'com.conveyal.disser.Disser'
     }

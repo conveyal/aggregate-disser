@@ -5,6 +5,7 @@ import java.io.PrintWriter;
 import java.io.Serializable;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -48,8 +49,8 @@ import com.vividsolutions.jts.geom.TopologyException;
 
 public class Disser {
     public static void main(String[] args) throws Exception {
-    	if( args.length < 4 ) {
-    		System.out.println( "usage: cmd [--(discrete|shapefile)] indicator_shp indicator_fld diss_shp diss_fld" );
+    	if( args.length < 5 ) {
+    		System.out.println( "usage: cmd [--(discrete|shapefile)] indicator_shp indicator_fld diss_shp diss_fld output_fn" );
     		return;
     	}
     	
@@ -64,6 +65,7 @@ public class Disser {
     	String indicator_fld = args[argOfs+1];
     	String diss_shp = args[argOfs+2];
     	String dissFldExpression = args[argOfs+3];
+    	String output_fn = args[argOfs+4];
       
     	//==== get indicator shapefile
     	
@@ -117,7 +119,7 @@ public class Disser {
         int i=0;
         while( iterator.hasNext() ){
         	if(i%100==0){
-        		System.out.println( i+"/"+n+" ("+(100*(float)i)/n+"%)" );
+        		System.out.print( "\r"+i+"/"+n+" ("+(100*(float)i)/n+"%)" );
         	}
         	
              Feature ind = (Feature) iterator.next();
@@ -149,6 +151,7 @@ public class Disser {
              dissIterator.close();
              i++;
         }
+        System.out.println(""); //print newline after the progress meter
         
         // register each diss with the inds, along with the ind's share of the diss's magnitude
         System.out.println( "accumulating diss shares under inds" );
@@ -233,7 +236,7 @@ public class Disser {
         // go through the dissMag list and emit points at centroids
         if(!shapefile){
             System.out.print( "printing to file..." );
-	        PrintWriter writer = new PrintWriter("afile.csv", "UTF-8");
+	        PrintWriter writer = new PrintWriter(output_fn, "UTF-8");
 	        writer.println("lon,lat,mag");
 	        
 	        Random rand = new Random(); //could come in handy if we're doing a discrete output
@@ -276,7 +279,7 @@ public class Disser {
         	ShapefileDataStoreFactory dataStoreFactory = new ShapefileDataStoreFactory();
         	
         	Map<String, Serializable> params = new HashMap<String, Serializable>();
-       		params.put("url", new File("afile.shp").toURI().toURL());
+       		params.put("url", new File(output_fn).toURI().toURL());
        		params.put("create spatial index", Boolean.TRUE);
        		
     		ShapefileDataStore outputStore = (ShapefileDataStore)dataStoreFactory.createNewDataStore(params);
@@ -351,6 +354,16 @@ public class Disser {
 			mag = ((Geometry)diss.getDefaultGeometryProperty().getValue()).getArea();
 		} else {
 			Property magProp = diss.getProperty(diss_fld);
+			
+			if(magProp==null){
+				String propStrings = "";
+				Collection<Property> props = diss.getProperties();
+				for( Property prop : props ){
+					propStrings += " "+prop.getName();
+				}
+				throw new Exception("Property '"+diss_fld+"' not found. Options are:"+propStrings+"." );
+			}
+			
 			Class<?> cls = magProp.getType().getBinding();
 			
 			Object propVal = diss.getProperty( diss_fld ).getValue();
