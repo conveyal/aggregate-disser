@@ -1,8 +1,10 @@
 package com.conveyal.disser;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Serializable;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -71,27 +73,11 @@ public class Disser {
       
     	//==== get indicator shapefile
     	
-    	// construct shapefile factory
-        File file = new File( indicator_shp );
-        Map<String,URL> map = new HashMap<String,URL>();
-        map.put( "url", file.toURI().toURL() );
-        DataStore dataStore = DataStoreFinder.getDataStore( map );
-        
-        // get shapefile as generic 'feature source'
-        String typeName = dataStore.getTypeNames()[0];
-        FeatureSource<?, ?> indicatorSource = dataStore.getFeatureSource( typeName );
+    	FeatureSource<?, ?> indicatorSource = getFeatureSource(indicator_shp);
         
         //==== get diss source
         
-    	// construct shapefile factory
-        File dissFile = new File( diss_shp );
-        Map<String,URL> dissMap = new HashMap<String,URL>();
-        dissMap.put( "url", dissFile.toURI().toURL() );
-        DataStore dissDataStore = DataStoreFinder.getDataStore( dissMap );
-        
-        // get shapefile as generic 'feature source'
-        String dissTypeName = dissDataStore.getTypeNames()[0];
-        FeatureSource<?, ?> dissSource = dissDataStore.getFeatureSource( dissTypeName );
+    	FeatureSource<?, ?> dissSource = getFeatureSource(diss_shp);
         
         //==== make sure both shapefiles have the same CRS
         CoordinateReferenceSystem crs1 = indicatorSource.getSchema().getCoordinateReferenceSystem();
@@ -113,9 +99,9 @@ public class Disser {
         String indicatorPropertyName = indicatorSource.getSchema().getGeometryDescriptor().getLocalName();
         BBOX dissFilter = ff.bbox(ff.property(indicatorPropertyName), dissBBox);
 
-        FeatureCollection<?, ?> collection = indicatorSource.getFeatures(dissFilter);
-        FeatureIterator<?> iterator = collection.features();
-        int n = collection.size();
+        FeatureCollection<?, ?> disCollection = indicatorSource.getFeatures(dissFilter);
+        FeatureIterator<?> iterator = disCollection.features();
+        int n = disCollection.size();
         
         System.out.println( "accumulating ind geoms under disses" );
         int i=0;
@@ -342,6 +328,20 @@ public class Disser {
         }
         System.out.print("done.\n");
     }
+
+	private static FeatureSource<?, ?> getFeatureSource(String shp_filename)
+			throws MalformedURLException, IOException {
+		// construct shapefile factory
+        File file = new File( shp_filename );
+        Map<String,URL> map = new HashMap<String,URL>();
+        map.put( "url", file.toURI().toURL() );
+        DataStore dataStore = DataStoreFinder.getDataStore( map );
+        
+        // get shapefile as generic 'feature source'
+        String typeName = dataStore.getTypeNames()[0];
+        FeatureSource<?, ?> source = dataStore.getFeatureSource( typeName );
+		return source;
+	}
 
 	private static double getFieldsByExpression(String fieldExpression,
 			Feature feature) throws Exception {
