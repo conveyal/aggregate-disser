@@ -48,6 +48,8 @@ import com.vividsolutions.jts.geom.TopologyException;
 
 
 public class Disser {
+	static boolean GEOM_TOLERANT = false;
+	
     public static void main(String[] args) throws Exception {
     	if( args.length < 5 ) {
     		System.out.println( "usage: cmd [--(discrete|shapefile)] indicator_shp indicator_fld diss_shp diss_fld output_fn" );
@@ -139,7 +141,7 @@ public class Disser {
             	 GeometryAttribute dissGeoAttr = diss.getDefaultGeometryProperty();
             	 Geometry dissGeo = (Geometry)dissGeoAttr.getValue();
             	 
-            	 if(dissGeo.intersects(indGeo)){
+            	 if(dissGeo.intersects(indGeo) || dissGeo.equals(indGeo)){
             		 ArrayList<Feature> inds = dissToInd.get(diss);
             		 if(inds==null){
             			 inds = new ArrayList<Feature>();
@@ -172,8 +174,12 @@ public class Disser {
         		try{
         			overlap = dissGeo.intersection(indGeo);
         		} catch (TopologyException e){
-        			// something strange happened; carry on
-        			continue;
+        			if(GEOM_TOLERANT){
+	        			// something strange happened; carry on
+	        			continue;
+        			} else{
+        				throw e;
+        			}
         		}
         		double overlapArea = overlap.getArea();
         		double fraction = overlapArea/dissGeoArea;
