@@ -1,9 +1,11 @@
 package com.conveyal.disser;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Serializable;
+import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
@@ -66,7 +68,7 @@ public class Disser {
     	}
     	    	
     	String indicator_shp = args[argOfs+0];
-    	String indicator_fld = args[argOfs+1];
+    	String indFldExpression = args[argOfs+1];
     	String diss_shp = args[argOfs+2];
     	String dissFldExpression = args[argOfs+3];
     	String output_fn = args[argOfs+4];
@@ -87,67 +89,190 @@ public class Disser {
         }        
         
         //==== loop through indicator shapefile, finding overlapping diss items
-    	HashMap<Feature,ArrayList<Feature>> dissToInd = new HashMap<Feature,ArrayList<Feature>>();
-        
-        FilterFactory2 ff = CommonFactoryFinder.getFilterFactory2();
-        FeatureType schema = dissSource.getSchema();
-        String geometryPropertyName = schema.getGeometryDescriptor().getLocalName();
-        CoordinateReferenceSystem dissCRS = schema.getGeometryDescriptor().getCoordinateReferenceSystem();
-        
-        // get the part of the indicator file where diss items will be found
-        ReferencedEnvelope dissBBox = dissSource.getBounds();
-        String indicatorPropertyName = indicatorSource.getSchema().getGeometryDescriptor().getLocalName();
-        BBOX dissFilter = ff.bbox(ff.property(indicatorPropertyName), dissBBox);
-
-        FeatureCollection<?, ?> disCollection = indicatorSource.getFeatures(dissFilter);
-        FeatureIterator<?> iterator = disCollection.features();
-        int n = disCollection.size();
-        
-        System.out.println( "accumulating ind geoms under disses" );
-        int i=0;
-        while( iterator.hasNext() ){
-        	if(i%100==0){
-        		System.out.print( "\r"+i+"/"+n+" ("+(100*(float)i)/n+"%)" );
-        	}
-        	
-             Feature ind = (Feature) iterator.next();
-             GeometryAttribute geoAttr = ind.getDefaultGeometryProperty();
-             Geometry indGeo = (Geometry)geoAttr.getValue();
-                          
-             // Get every diss geometry that intersects with the indicator geometry           
-             ReferencedEnvelope bbox = new ReferencedEnvelope(dissCRS);
-             bbox.setBounds(geoAttr.getBounds());
-             BBOX filter = ff.bbox(ff.property(geometryPropertyName), bbox);
-             FeatureCollection<?, ?> dissCollection = dissSource.getFeatures(filter);
-             FeatureIterator<?> dissIterator = dissCollection.features();
-             
-             // register the ind feature with the diss
-             while(dissIterator.hasNext()){
-            	 Feature diss = (Feature)dissIterator.next();
-            	 GeometryAttribute dissGeoAttr = diss.getDefaultGeometryProperty();
-            	 Geometry dissGeo = (Geometry)dissGeoAttr.getValue();
-            	 
-            	 if(dissGeo.intersects(indGeo) || dissGeo.equals(indGeo)){
-            		 ArrayList<Feature> inds = dissToInd.get(diss);
-            		 if(inds==null){
-            			 inds = new ArrayList<Feature>();
-            			 dissToInd.put(diss, inds);
-            		 }
-            		 inds.add(ind);	 
-            	 }
-             }
-             dissIterator.close();
-             i++;
-        }
-        System.out.println(""); //print newline after the progress meter
+    	HashMap<Feature, ArrayList<Feature>> dissToInd = collectIndByDiss(
+				indicatorSource, dissSource);
         
         // register each diss with the inds, along with the ind's share of the diss's magnitude
-        System.out.println( "accumulating diss shares under inds" );
+        HashMap<Feature, ArrayList<DissShare>> indDissShares = collectDissSharesByInd(
+				dissFldExpression, dissToInd);
+        
+        // dole out the ind's magnitude in proportion to the diss's mag share, accumulating under the diss
+        HashMap<Feature, Double> dissMags = distributeIndToDisses(
+				indFldExpression, indDissShares);
+        
+        // go through the dissMag list and emit points at centroids
+        if(shapefile){
+        	writeToShapefile(output_fn, dissMags); 
+        } else {
+        	writeToCSV(discrete, output_fn, dissMags);
+        }
+        
+        System.out.print("done.\n");
+    }
+
+	private static void writeToCSV(boolean discrete, String output_fn,
+			HashMap<Feature, Double> dissMags) throws FileNotFoundException,
+			UnsupportedEncodingException {
+		System.out.print( "printing to file..." );
+		PrintWriter writer = new PrintWriter(output_fn, "UTF-8");
+		writer.println("lon,lat,mag");
+		
+		Random rand = new Random(); //could come in handy if we're doing a discrete output
+		for( Entry<Feature, Double> entry : dissMags.entrySet() ) {
+			Feature diss = entry.getKey();
+			Geometry dissGeom = (Geometry)diss.getDefaultGeometryProperty().getValue();
+			double mag = entry.getValue();
+			
+			if(discrete){
+				// probabilistically round magnitude to an integer. This way if there's 5 disses with mag 0.2, on average
+				// one will be 1 and the others 0, instead of rounding all down to 0.
+				int discreteMag;
+				double remainder = mag-Math.floor(mag); //number between 0 and 1
+				if(remainder<rand.nextDouble()){
+					//remainder is smaller than random integer; relatively likely for small remainders
+					//so when this happens we'll round down
+					discreteMag = (int)Math.floor(mag);
+				} else {
+					discreteMag = (int)Math.ceil(mag);
+				}
+				
+				BoundingBox bb = diss.getBounds();
+				for(int j=0; j<discreteMag; j++){
+					Point pt = getRandomPoint( bb, dissGeom );
+					if(pt==null){
+						continue; //something went wrong; act cool
+					}
+					writer.println( pt.getX()+","+pt.getY()+",1");
+				}
+			} else {
+		    	Point centroid = dissGeom.getCentroid();
+		    	if(mag>0){
+		    		writer.println( centroid.getX()+","+centroid.getY()+","+mag);
+		    	}
+			}
+		}
+		writer.flush();
+		writer.close();
+	}
+
+	private static void writeToShapefile(String output_fn,
+			HashMap<Feature, Double> dissMags) throws MalformedURLException,
+			IOException {
+		System.out.println( "printing to shapefile..." );
+		ShapefileDataStoreFactory dataStoreFactory = new ShapefileDataStoreFactory();
+		
+		Map<String, Serializable> params = new HashMap<String, Serializable>();
+		params.put("url", new File(output_fn).toURI().toURL());
+		params.put("create spatial index", Boolean.TRUE);
+		
+		ShapefileDataStore outputStore = (ShapefileDataStore)dataStoreFactory.createNewDataStore(params);
+		outputStore.forceSchemaCRS(DefaultGeographicCRS.WGS84);
+		
+		// build the type
+		SimpleFeatureTypeBuilder builder = new SimpleFeatureTypeBuilder();
+		builder.setName("diss");
+		builder.setCRS(DefaultGeographicCRS.WGS84); 
+		builder.add("the_geom", MultiPolygon.class);
+		builder.length(16).add("mag", Float.class); 
+		
+		final SimpleFeatureType dissType = builder.buildFeatureType();
+		outputStore.createSchema(dissType);
+		
+		DefaultFeatureCollection featureCollection = new DefaultFeatureCollection();
+		SimpleFeatureBuilder featureBuilder = new SimpleFeatureBuilder(dissType);
+		
+		int j=0;
+		for(Entry<Feature, Double> entry : dissMags.entrySet()) {
+			if(j%1000==0){
+				System.out.println("writing feature "+j);
+			}
+			
+			Feature diss = entry.getKey();
+			Geometry dissGeom = (Geometry)diss.getDefaultGeometryProperty().getValue();
+			double mag = entry.getValue();
+
+			featureBuilder.add(dissGeom);
+			featureBuilder.add(mag);
+		
+		    SimpleFeature feature = featureBuilder.buildFeature(null);
+		    featureCollection.add(feature);
+		    
+		    j++;
+		}
+		
+		Transaction transaction = new DefaultTransaction("create");
+		String outputTypeName = outputStore.getTypeNames()[0];
+		SimpleFeatureSource featureSource = outputStore.getFeatureSource(outputTypeName);
+		if (featureSource instanceof SimpleFeatureStore) 
+		{
+			System.out.println("committing");
+		    SimpleFeatureStore featureStore = (SimpleFeatureStore) featureSource;
+
+		    featureStore.setTransaction(transaction);
+		   
+		    featureStore.addFeatures(featureCollection);
+		    transaction.commit();
+
+		    transaction.close();
+		}
+	}
+
+	private static HashMap<Feature, Double> distributeIndToDisses(
+			String indicator_fld,
+			HashMap<Feature, ArrayList<DissShare>> indDissShares)
+			throws Exception {
+		System.out.println( "doling out ind magnitudes to disses" );
+        HashMap<Feature,Double> dissMags = new HashMap<Feature,Double>();
+        for( Entry<Feature, ArrayList<DissShare>> entry : indDissShares.entrySet() ){
+        	Feature ind = entry.getKey();
+        	ArrayList<DissShare> dissShares = entry.getValue();
+
+        	// count up total shares
+        	int totalDissMag = 0;
+        	int totalDiss = 0;
+        	for(DissShare dissShare : dissShares){
+        		totalDissMag += dissShare.mag;
+        		totalDiss += 1;
+        	}
+        	
+        	// get magnitude of ind
+        	double indMag = getFieldsByExpression( indicator_fld, ind );
+        	
+        	// for every diss associated with ind
+        	for( DissShare dissShare : dissShares ){
+        		// find fraction of ind doleable to diss
+        		double fraction;
+        		if(totalDissMag>0){
+        			fraction = dissShare.mag/totalDissMag;
+        		} else {
+        			// if all disses under ind have 0 magnitude, but the
+        			// ind still has magnitude to dole out, dole out equally
+        			// to all disses.
+        			fraction = 1.0/totalDiss; 
+        		}
+        		double doleable = indMag*fraction;
+        		
+        		// accumulate values doled out to disses
+        		Double dissMag = dissMags.get(dissShare.diss);
+        		if(dissMag==null){
+        			dissMag = new Double(0);
+        		}
+        		dissMag += doleable;
+        		dissMags.put(dissShare.diss,dissMag);
+        	}
+        }
+		return dissMags;
+	}
+
+	private static HashMap<Feature, ArrayList<DissShare>> collectDissSharesByInd(
+			String dissFldExpression,
+			HashMap<Feature, ArrayList<Feature>> dissToInd) throws Exception {
+		System.out.println( "accumulating diss shares under inds" );
         HashMap<Feature,ArrayList<DissShare>> indDissShares = new HashMap<Feature,ArrayList<DissShare>>();
         for( Entry<Feature, ArrayList<Feature>> entry : dissToInd.entrySet() ){
         	Feature diss = entry.getKey();
         	ArrayList<Feature> inds = entry.getValue();
-        	
+
         	// determine diss's magnitude
         	double mag = getFieldsByExpression(dissFldExpression, diss);
         	
@@ -182,152 +307,67 @@ public class Disser {
         		shares.add(new DissShare(diss,share));
         	}
         }
+		return indDissShares;
+	}
+
+	private static HashMap<Feature, ArrayList<Feature>> collectIndByDiss(
+			FeatureSource<?, ?> indicatorSource, FeatureSource<?, ?> dissSource)
+			throws IOException {
+		HashMap<Feature,ArrayList<Feature>> dissToInd = new HashMap<Feature,ArrayList<Feature>>();
         
-        // dole out the ind's magnitude in proportion to the diss's mag share, accumulating under the diss
-        System.out.println( "doling out ind magnitudes to disses" );
-        HashMap<Feature,Double> dissMags = new HashMap<Feature,Double>();
-        for( Entry<Feature, ArrayList<DissShare>> entry : indDissShares.entrySet() ){
-        	Feature ind = entry.getKey();
-        	ArrayList<DissShare> dissShares = entry.getValue();
-        	
-        	// count up total shares
-        	int totalDissMag = 0;
-        	int totalDiss = 0;
-        	for(DissShare dissShare : dissShares){
-        		totalDissMag += dissShare.mag;
-        		totalDiss += 1;
+        FilterFactory2 ff = CommonFactoryFinder.getFilterFactory2();
+        FeatureType schema = dissSource.getSchema();
+        String geometryPropertyName = schema.getGeometryDescriptor().getLocalName();
+        CoordinateReferenceSystem dissCRS = schema.getGeometryDescriptor().getCoordinateReferenceSystem();
+        
+        // get the part of the indicator file where diss items will be found
+        ReferencedEnvelope dissBBox = dissSource.getBounds();
+        String indicatorPropertyName = indicatorSource.getSchema().getGeometryDescriptor().getLocalName();
+        BBOX dissFilter = ff.bbox(ff.property(indicatorPropertyName), dissBBox);
+
+        FeatureCollection<?, ?> indCollection = indicatorSource.getFeatures(dissFilter);
+        FeatureIterator<?> indIterator = indCollection.features();
+        int n = indCollection.size();
+        
+        System.out.println( "accumulating ind geoms under disses" );
+        int i=0;
+        while( indIterator.hasNext() ){
+        	if(i%100==0){
+        		System.out.print( "\r"+i+"/"+n+" ("+(100*(float)i)/n+"%)" );
         	}
         	
-        	// get magnitude of ind
-        	double indMag = getFieldsByExpression( indicator_fld, ind );
-        	
-        	// for every diss associated with ind
-        	for( DissShare dissShare : dissShares ){
-        		// find fraction of ind doleable to diss
-        		double fraction;
-        		if(totalDissMag>0){
-        			fraction = dissShare.mag/totalDissMag;
-        		} else {
-        			// if all disses under ind have 0 magnitude, but the
-        			// ind still has magnitude to dole out, dole out equally
-        			// to all disses.
-        			fraction = 1.0/totalDiss; 
-        		}
-        		double doleable = indMag*fraction;
-        		
-        		// accumulate values doled out to disses
-        		Double dissMag = dissMags.get(dissShare);
-        		if(dissMag==null){
-        			dissMag = new Double(0);
-        		}
-        		dissMag += doleable;
-        		dissMags.put(dissShare.diss,dissMag);
-        	}
+             Feature ind = (Feature) indIterator.next();
+             GeometryAttribute indGeoAttr = ind.getDefaultGeometryProperty();
+             Geometry indGeo = (Geometry)indGeoAttr.getValue();
+             
+             // Get every diss geometry that intersects with the indicator geometry           
+             ReferencedEnvelope bbox = new ReferencedEnvelope(dissCRS);
+             bbox.setBounds(indGeoAttr.getBounds());
+             BBOX filter = ff.bbox(ff.property(geometryPropertyName), bbox);
+             FeatureCollection<?, ?> dissCollection = dissSource.getFeatures(filter);
+             FeatureIterator<?> dissIterator = dissCollection.features();
+             
+             // register the ind feature with the diss
+             while(dissIterator.hasNext()){
+            	 Feature diss = (Feature)dissIterator.next();
+            	 GeometryAttribute dissGeoAttr = diss.getDefaultGeometryProperty();
+            	 Geometry dissGeo = (Geometry)dissGeoAttr.getValue();
+            	 
+            	 if(dissGeo.intersects(indGeo) || dissGeo.equals(indGeo)){
+            		 ArrayList<Feature> inds = dissToInd.get(diss);
+            		 if(inds==null){
+            			 inds = new ArrayList<Feature>();
+            			 dissToInd.put(diss, inds);
+            		 }
+            		 inds.add(ind);	 
+            	 }
+             }
+             dissIterator.close();
+             i++;
         }
-        
-        // go through the dissMag list and emit points at centroids
-        if(!shapefile){
-            System.out.print( "printing to file..." );
-	        PrintWriter writer = new PrintWriter(output_fn, "UTF-8");
-	        writer.println("lon,lat,mag");
-	        
-	        Random rand = new Random(); //could come in handy if we're doing a discrete output
-	        for( Entry<Feature, Double> entry : dissMags.entrySet() ) {
-	        	Feature diss = entry.getKey();
-	        	Geometry dissGeom = (Geometry)diss.getDefaultGeometryProperty().getValue();
-	        	double mag = entry.getValue();
-	        	if(discrete){
-	        		// probabilistically round magnitude to an integer. This way if there's 5 disses with mag 0.2, on average
-	        		// one will be 1 and the others 0, instead of rounding all down to 0.
-	        		int discreteMag;
-	        		double remainder = mag-Math.floor(mag); //number between 0 and 1
-	        		if(remainder<rand.nextDouble()){
-	        			//remainder is smaller than random integer; relatively likely for small remainders
-	        			//so when this happens we'll round down
-	        			discreteMag = (int)Math.floor(mag);
-	        		} else {
-	        			discreteMag = (int)Math.ceil(mag);
-	        		}
-	        		
-	        		BoundingBox bb = diss.getBounds();
-	        		for(int j=0; j<discreteMag; j++){
-	        			Point pt = getRandomPoint( bb, dissGeom );
-	        			if(pt==null){
-	        				continue; //something went wrong; act cool
-	        			}
-	        			writer.println( pt.getX()+","+pt.getY()+",1");
-	        		}
-	        	} else {
-	            	Point centroid = dissGeom.getCentroid();
-	            	if(mag>0){
-	            		writer.println( centroid.getX()+","+centroid.getY()+","+mag);
-	            	}
-	        	}
-	        }
-	        writer.flush();
-	        writer.close();
-        } else {
-        	System.out.println( "printing to shapefile..." );
-        	ShapefileDataStoreFactory dataStoreFactory = new ShapefileDataStoreFactory();
-        	
-        	Map<String, Serializable> params = new HashMap<String, Serializable>();
-       		params.put("url", new File(output_fn).toURI().toURL());
-       		params.put("create spatial index", Boolean.TRUE);
-       		
-    		ShapefileDataStore outputStore = (ShapefileDataStore)dataStoreFactory.createNewDataStore(params);
-    		outputStore.forceSchemaCRS(DefaultGeographicCRS.WGS84);
-    		
-            // build the type
-        	SimpleFeatureTypeBuilder builder = new SimpleFeatureTypeBuilder();
-            builder.setName("diss");
-            builder.setCRS(DefaultGeographicCRS.WGS84); 
-            builder.add("the_geom", MultiPolygon.class);
-            builder.length(16).add("mag", Float.class); 
-            
-            final SimpleFeatureType dissType = builder.buildFeatureType();
-            outputStore.createSchema(dissType);
-            
-            DefaultFeatureCollection featureCollection = new DefaultFeatureCollection();
-            SimpleFeatureBuilder featureBuilder = new SimpleFeatureBuilder(dissType);
-            
-            int j=0;
-            for(Entry<Feature, Double> entry : dissMags.entrySet()) {
-            	if(j%1000==0){
-            		System.out.println("writing feature "+j);
-            	}
-            	
-	        	Feature diss = entry.getKey();
-	        	Geometry dissGeom = (Geometry)diss.getDefaultGeometryProperty().getValue();
-	        	double mag = entry.getValue();
-	        	
-	        	featureBuilder.add(dissGeom);
-	        	featureBuilder.add(mag);
-         	
-                SimpleFeature feature = featureBuilder.buildFeature(null);
-                featureCollection.add(feature);
-                
-                j++;
-            }
-            
-            Transaction transaction = new DefaultTransaction("create");
-            String outputTypeName = outputStore.getTypeNames()[0];
-            SimpleFeatureSource featureSource = outputStore.getFeatureSource(outputTypeName);
-            if (featureSource instanceof SimpleFeatureStore) 
-            {
-            	System.out.println("committing");
-                SimpleFeatureStore featureStore = (SimpleFeatureStore) featureSource;
-
-                featureStore.setTransaction(transaction);
-               
-                featureStore.addFeatures(featureCollection);
-                transaction.commit();
-
-                transaction.close();
-            } 
-            
-        }
-        System.out.print("done.\n");
-    }
+        System.out.println(""); //print newline after the progress meter
+		return dissToInd;
+	}
 
 	private static FeatureSource<?, ?> getFeatureSource(String shp_filename)
 			throws MalformedURLException, IOException {
