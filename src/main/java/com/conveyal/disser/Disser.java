@@ -91,6 +91,11 @@ public class Disser {
         //==== loop through indicator shapefile, finding overlapping diss items
     	HashMap<Feature, ArrayList<Feature>> dissToInd = collectIndByDiss(
 				indicatorSource, dissSource);
+    	
+    	if(dissToInd.size()==0){
+    		System.out.println( "no overlaps found." );
+    		return;
+    	}
         
         // register each diss with the inds, along with the ind's share of the diss's magnitude
         HashMap<Feature, ArrayList<DissShare>> indDissShares = collectDissSharesByInd(
@@ -237,6 +242,9 @@ public class Disser {
         	
         	// get magnitude of ind
         	double indMag = getFieldsByExpression( indicator_fld, ind );
+        	if(indMag==0.0){
+        		continue;
+        	}
         	
         	// for every diss associated with ind
         	for( DissShare dissShare : dissShares ){
@@ -251,6 +259,9 @@ public class Disser {
         			fraction = 1.0/totalDiss; 
         		}
         		double doleable = indMag*fraction;
+        		if(doleable==0.0){
+        			continue;
+        		}
         		
         		// accumulate values doled out to disses
         		Double dissMag = dissMags.get(dissShare.diss);
@@ -297,6 +308,9 @@ public class Disser {
         		
             	// assign the magnitude proportionately
         		double share = fraction*mag;
+        		if(share==0.0){
+        			continue;
+        		}
         		
         		// then register the diss feature's share with the ind feature
         		ArrayList<DissShare> shares = indDissShares.get(ind);
@@ -353,7 +367,7 @@ public class Disser {
             	 GeometryAttribute dissGeoAttr = diss.getDefaultGeometryProperty();
             	 Geometry dissGeo = (Geometry)dissGeoAttr.getValue();
             	 
-            	 if(dissGeo.intersects(indGeo) || dissGeo.equals(indGeo)){
+            	 if(dissGeo.crosses(indGeo) || dissGeo.equals(indGeo)){
             		 ArrayList<Feature> inds = dissToInd.get(diss);
             		 if(inds==null){
             			 inds = new ArrayList<Feature>();
