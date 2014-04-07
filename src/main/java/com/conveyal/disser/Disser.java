@@ -367,7 +367,7 @@ public class Disser {
             	 GeometryAttribute dissGeoAttr = diss.getDefaultGeometryProperty();
             	 Geometry dissGeo = (Geometry)dissGeoAttr.getValue();
             	 
-            	 if(dissGeo.crosses(indGeo) || dissGeo.equals(indGeo)){
+            	 if(dissGeo.intersects(indGeo) || dissGeo.equals(indGeo)){
             		 ArrayList<Feature> inds = dissToInd.get(diss);
             		 if(inds==null){
             			 inds = new ArrayList<Feature>();
