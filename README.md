@@ -11,7 +11,7 @@ A tool for reversing an aggregated data set into the set from which it was produ
 
 ## Building
 
-    $ gradle farJar
+    $ gradle fatJar
     
 ## Running
 
