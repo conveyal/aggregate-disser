@@ -1,7 +1,7 @@
 aggregate-disser
 ================
 
-A tool for reversing an aggregated data set into the set from which it was produced. Learn more about how it works here: [Building Precise Maps with Disser](http://conveyal.com/blog/2014/04/08/aggregate-disser/)
+A tool for reversing an aggregated data set into the set from which it was produced. Learn more about how it works here: [Building Precise Maps with Disser](http://conveyal.com/blog/2014/04/08/aggregate-disser)
 
 ![A disser map of NYC](http://conveyal.com/img/disser/fig007.png)
 
